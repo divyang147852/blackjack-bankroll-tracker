@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: blackjack-bankroll-tracker
+    env: node
+    plan: free
+    buildCommand: npm install --prefix server
+    startCommand: npm run start --prefix server
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DB_PATH
+        value: ../../database/blackjack_tracker.db
