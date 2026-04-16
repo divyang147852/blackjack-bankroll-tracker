@@ -115,6 +115,7 @@ npm run dev
 - GET /api/sessions
 - POST /api/sessions
 - POST /api/sessions/auto
+- POST /api/sessions/auto-next
 - DELETE /api/sessions/:id
 - GET /api/settings
 - PUT /api/settings

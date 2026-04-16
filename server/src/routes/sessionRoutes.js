@@ -159,6 +159,52 @@ router.post("/auto", (req, res) => {
   }
 });
 
+router.post("/auto-next", (req, res) => {
+  const latest = db
+    .prepare(
+      `SELECT date, end_balance
+       FROM sessions
+       WHERE user_id = ?
+       ORDER BY date DESC, id DESC
+       LIMIT 1`
+    )
+    .get(req.user.id);
+
+  const baseDate = latest ? new Date(`${latest.date}T00:00:00`) : new Date();
+  baseDate.setDate(baseDate.getDate() + 1);
+  const nextDate = baseDate.toISOString().slice(0, 10);
+
+  const startBalance = round2(latest ? Number(latest.end_balance || 0) : 0);
+
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO sessions
+         (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
+         VALUES (?, ?, ?, 0, 0, ?, ?, 0, NULL)`
+      )
+      .run(req.user.id, nextDate, startBalance, startBalance, "Auto next-day entry");
+
+    return res.status(201).json({
+      id: result.lastInsertRowid,
+      date: nextDate,
+      startBalance,
+      profitLoss: 0,
+      withdrawal: 0,
+      endBalance: startBalance,
+      notes: "Auto next-day entry",
+      hoursPlayed: 0,
+      handsPlayed: null
+    });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE constraint failed: sessions.user_id, sessions.date")) {
+      return res.status(409).json({ message: "Next-day session already exists" });
+    }
+
+    return res.status(500).json({ message: "Unable to create next-day auto session" });
+  }
+});
+
 router.delete("/:id", (req, res) => {
   const result = db.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
 
