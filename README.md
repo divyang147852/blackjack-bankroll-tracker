@@ -122,6 +122,10 @@ npm run dev
 - GET /api/backup/download
 - POST /api/backup/restore
 
+CSV restore note:
+- Uploading a `.csv` exported from `/api/export/csv` to `/api/backup/restore` imports sessions into the currently logged-in account.
+- Rows are matched by `date`; existing rows for the same date are updated.
+
 ## Production Notes
 
 - Replace JWT secret in server/.env
