@@ -117,6 +117,11 @@ router.post("/", (req, res) => {
 
 router.post("/auto", (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
+  const settings = getUserSettings(req.user.id);
+
+  if (!settings) {
+    return res.status(404).json({ message: "Settings not found" });
+  }
 
   const latest = db
     .prepare(
@@ -129,26 +134,45 @@ router.post("/auto", (req, res) => {
     .get(req.user.id);
 
   const startBalance = round2(latest ? Number(latest.end_balance || 0) : 0);
+  const profitLoss = round2(startBalance * (Number(settings.profit_target_percent || 0) / 100));
+  const metrics = computeSessionMetrics({
+    startBalance,
+    profitLoss,
+    withdrawalPercent: settings.withdrawal_percent,
+    stopLossPercent: settings.stop_loss_percent,
+    profitTargetPercent: settings.profit_target_percent
+  });
 
   try {
     const result = db
       .prepare(
         `INSERT INTO sessions
          (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
-         VALUES (?, ?, ?, 0, 0, ?, ?, 0, NULL)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)`
       )
-      .run(req.user.id, today, startBalance, startBalance, "Auto entry");
+      .run(
+        req.user.id,
+        today,
+        startBalance,
+        profitLoss,
+        metrics.suggestedWithdrawal,
+        metrics.endBalance,
+        "Auto entry (target hit)"
+      );
 
     return res.status(201).json({
       id: result.lastInsertRowid,
       date: today,
       startBalance,
-      profitLoss: 0,
-      withdrawal: 0,
-      endBalance: startBalance,
-      notes: "Auto entry",
+      profitLoss,
+      withdrawal: metrics.suggestedWithdrawal,
+      endBalance: metrics.endBalance,
+      notes: "Auto entry (target hit)",
       hoursPlayed: 0,
-      handsPlayed: null
+      handsPlayed: null,
+      unitSize: metrics.unitSize,
+      nextDayStopLoss: metrics.nextDayStopLoss,
+      nextDayProfitTarget: metrics.nextDayProfitTarget
     });
   } catch (error) {
     if (String(error.message).includes("UNIQUE constraint failed: sessions.user_id, sessions.date")) {
@@ -156,52 +180,6 @@ router.post("/auto", (req, res) => {
     }
 
     return res.status(500).json({ message: "Unable to create auto session" });
-  }
-});
-
-router.post("/auto-next", (req, res) => {
-  const latest = db
-    .prepare(
-      `SELECT date, end_balance
-       FROM sessions
-       WHERE user_id = ?
-       ORDER BY date DESC, id DESC
-       LIMIT 1`
-    )
-    .get(req.user.id);
-
-  const baseDate = latest ? new Date(`${latest.date}T00:00:00`) : new Date();
-  baseDate.setDate(baseDate.getDate() + 1);
-  const nextDate = baseDate.toISOString().slice(0, 10);
-
-  const startBalance = round2(latest ? Number(latest.end_balance || 0) : 0);
-
-  try {
-    const result = db
-      .prepare(
-        `INSERT INTO sessions
-         (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
-         VALUES (?, ?, ?, 0, 0, ?, ?, 0, NULL)`
-      )
-      .run(req.user.id, nextDate, startBalance, startBalance, "Auto next-day entry");
-
-    return res.status(201).json({
-      id: result.lastInsertRowid,
-      date: nextDate,
-      startBalance,
-      profitLoss: 0,
-      withdrawal: 0,
-      endBalance: startBalance,
-      notes: "Auto next-day entry",
-      hoursPlayed: 0,
-      handsPlayed: null
-    });
-  } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed: sessions.user_id, sessions.date")) {
-      return res.status(409).json({ message: "Next-day session already exists" });
-    }
-
-    return res.status(500).json({ message: "Unable to create next-day auto session" });
   }
 });
 

@@ -37,27 +37,6 @@
     });
   }
 
-  function requestNextDayEntry() {
-    return fetch("/api/sessions/auto-next", {
-      method: "POST",
-      headers: authHeaders()
-    }).then(function (res) {
-      return res
-        .json()
-        .catch(function () {
-          return {};
-        })
-        .then(function (body) {
-          if (!res.ok) {
-            var error = new Error(body.message || "Next day entry failed");
-            error.status = res.status;
-            throw error;
-          }
-
-          return body;
-        });
-    });
-  }
 
   function mountAutoEntryPanel(host) {
     if (!host || document.getElementById(PANEL_ID)) {
@@ -79,7 +58,8 @@
     title.style.color = "#a7f3d0";
 
     var hint = document.createElement("p");
-    hint.textContent = "One click creates today or next day session with zero P/L using your latest balance.";
+    hint.textContent =
+      "Auto Entry assumes target hit for today and calculates P/L, withdrawal, and end balance from your settings. Use manual entry for loss days.";
     hint.style.margin = "0.4rem 0 0.6rem 0";
     hint.style.fontSize = "0.82rem";
     hint.style.color = "#d1fae5";
@@ -95,18 +75,6 @@
     btn.style.fontWeight = "700";
     btn.style.cursor = "pointer";
 
-    var nextBtn = document.createElement("button");
-    nextBtn.type = "button";
-    nextBtn.textContent = "Create Next Day Entry";
-    nextBtn.style.padding = "0.55rem 0.9rem";
-    nextBtn.style.border = "none";
-    nextBtn.style.borderRadius = "0.65rem";
-    nextBtn.style.background = "#38bdf8";
-    nextBtn.style.color = "#082f49";
-    nextBtn.style.fontWeight = "700";
-    nextBtn.style.cursor = "pointer";
-    nextBtn.style.marginLeft = "0.45rem";
-
     var status = document.createElement("p");
     status.style.margin = "0.55rem 0 0 0";
     status.style.fontSize = "0.82rem";
@@ -114,7 +82,6 @@
 
     btn.addEventListener("click", function () {
       btn.disabled = true;
-      nextBtn.disabled = true;
       status.textContent = "Creating auto entry...";
 
       requestAutoEntry()
@@ -125,31 +92,12 @@
         .catch(function (err) {
           status.textContent = err.message || "Failed to create auto entry.";
           btn.disabled = false;
-          nextBtn.disabled = false;
-        });
-    });
-
-    nextBtn.addEventListener("click", function () {
-      btn.disabled = true;
-      nextBtn.disabled = true;
-      status.textContent = "Creating next day entry...";
-
-      requestNextDayEntry()
-        .then(function () {
-          status.textContent = "Next day entry created.";
-          window.location.reload();
-        })
-        .catch(function (err) {
-          status.textContent = err.message || "Failed to create next day entry.";
-          btn.disabled = false;
-          nextBtn.disabled = false;
         });
     });
 
     panel.appendChild(title);
     panel.appendChild(hint);
     panel.appendChild(btn);
-    panel.appendChild(nextBtn);
     panel.appendChild(status);
 
     host.appendChild(panel);
