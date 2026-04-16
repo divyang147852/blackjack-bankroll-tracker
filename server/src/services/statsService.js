@@ -82,7 +82,8 @@ function buildDashboard(userId) {
   const goal = computeGoalProgress({
     yearlyTarget: settings.yearly_target,
     currentBalance: aggregate.currentBalance,
-    totalWithdrawn: aggregate.totalWithdrawn
+    totalWithdrawn: aggregate.totalWithdrawn,
+    daysPlayed: aggregate.daysPlayed
   });
 
   const roiPercent =

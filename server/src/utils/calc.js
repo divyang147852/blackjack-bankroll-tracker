@@ -1,5 +1,3 @@
-const dayjs = require("dayjs");
-
 function round2(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
@@ -42,14 +40,14 @@ function computeSessionMetrics({
   };
 }
 
-function computeGoalProgress({ yearlyTarget, currentBalance, totalWithdrawn }) {
+function computeGoalProgress({ yearlyTarget, currentBalance, totalWithdrawn, daysPlayed }) {
   const safeTarget = Math.max(0, Number(yearlyTarget || 0));
   const totalValue = round2(Number(currentBalance || 0) + Number(totalWithdrawn || 0));
   const progressPercent = safeTarget > 0 ? round2((totalValue / safeTarget) * 100) : 0;
 
-  const now = dayjs();
-  const endOfYear = dayjs().endOf("year");
-  const daysRemaining = Math.max(endOfYear.diff(now, "day"), 0);
+  const safeDaysPlayed = Math.max(Number(daysPlayed || 0), 0);
+  const daysRemaining = safeDaysPlayed > 0 ? Math.max(365 - (safeDaysPlayed - 1), 0) : 365;
+
   const remaining = Math.max(safeTarget - totalValue, 0);
   const requiredAverageDailyGrowth = daysRemaining > 0 ? round2(remaining / daysRemaining) : round2(remaining);
 

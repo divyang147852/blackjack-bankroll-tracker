@@ -107,6 +107,8 @@ npm run dev
 - POST /api/auth/register
 - POST /api/auth/login
 - GET /api/auth/me
+- POST /api/auth/delete/request-otp
+- DELETE /api/auth/me
 - GET /api/dashboard
 - GET /api/summary/daily
 - GET /api/analytics
