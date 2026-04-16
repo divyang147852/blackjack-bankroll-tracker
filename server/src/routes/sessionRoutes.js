@@ -115,6 +115,50 @@ router.post("/", (req, res) => {
   }
 });
 
+router.post("/auto", (req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const latest = db
+    .prepare(
+      `SELECT end_balance
+       FROM sessions
+       WHERE user_id = ?
+       ORDER BY date DESC, id DESC
+       LIMIT 1`
+    )
+    .get(req.user.id);
+
+  const startBalance = round2(latest ? Number(latest.end_balance || 0) : 0);
+
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO sessions
+         (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
+         VALUES (?, ?, ?, 0, 0, ?, ?, 0, NULL)`
+      )
+      .run(req.user.id, today, startBalance, startBalance, "Auto entry");
+
+    return res.status(201).json({
+      id: result.lastInsertRowid,
+      date: today,
+      startBalance,
+      profitLoss: 0,
+      withdrawal: 0,
+      endBalance: startBalance,
+      notes: "Auto entry",
+      hoursPlayed: 0,
+      handsPlayed: null
+    });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE constraint failed: sessions.user_id, sessions.date")) {
+      return res.status(409).json({ message: "Today's session already exists" });
+    }
+
+    return res.status(500).json({ message: "Unable to create auto session" });
+  }
+});
+
 router.delete("/:id", (req, res) => {
   const result = db.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
 
