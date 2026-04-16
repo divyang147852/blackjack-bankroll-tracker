@@ -6,3 +6,5 @@ server/.env
 *.db
 uploads/
 .DS_Store
+*.db-wal
+*.db-shm
