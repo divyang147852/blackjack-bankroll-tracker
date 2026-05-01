@@ -7,18 +7,17 @@ const { round2 } = require("../utils/calc");
 const router = express.Router();
 router.use(authMiddleware);
 
-router.get("/daily", (req, res) => {
-  const row = db
-    .prepare(
-      `SELECT
-         COUNT(*) AS sessions,
-         COALESCE(SUM(profit_loss), 0) AS total_pl,
-         COALESCE(SUM(withdrawal), 0) AS total_withdrawals,
-         COALESCE(AVG(profit_loss), 0) AS avg_pl
-       FROM sessions
-       WHERE user_id = ? AND date >= ?`
-    )
-    .get(req.user.id, dayjs().subtract(30, "day").format("YYYY-MM-DD"));
+router.get("/daily", async (req, res) => {
+  const row = await db.get(
+    `SELECT
+       COUNT(*) AS sessions,
+       COALESCE(SUM(profit_loss), 0) AS total_pl,
+       COALESCE(SUM(withdrawal), 0) AS total_withdrawals,
+       COALESCE(AVG(profit_loss), 0) AS avg_pl
+     FROM sessions
+     WHERE user_id = ? AND date >= ?`,
+    [req.user.id, dayjs().subtract(30, "day").format("YYYY-MM-DD")]
+  );
 
   return res.json({
     sessions: Number(row.sessions || 0),

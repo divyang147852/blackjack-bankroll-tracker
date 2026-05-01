@@ -6,6 +6,7 @@ const ExcelJS = require("exceljs");
 const db = require("../db");
 const authMiddleware = require("../middleware/auth");
 const config = require("../config");
+const { validateDateInWindow } = require("../utils/trackingWindow");
 
 const uploadDir = path.resolve(__dirname, "../../uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -63,28 +64,18 @@ async function importSessionsFromCsv(filePath, userId) {
     throw new Error("invalid_csv_format");
   }
 
-  const upsert = db.prepare(
-    `INSERT INTO sessions
-     (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(user_id, date)
-     DO UPDATE SET
-       start_balance = excluded.start_balance,
-       profit_loss = excluded.profit_loss,
-       withdrawal = excluded.withdrawal,
-       end_balance = excluded.end_balance,
-       notes = excluded.notes,
-       hours_played = excluded.hours_played,
-       hands_played = excluded.hands_played`
-  );
-
-  const txn = db.transaction(() => {
-    let imported = 0;
+  const imported = await db.withTransaction(async (tx) => {
+    let count = 0;
 
     for (let rowNum = 2; rowNum <= sheet.rowCount; rowNum += 1) {
       const values = sheet.getRow(rowNum).values.slice(1);
       const date = String(values[col.date] || "").trim();
       if (!date) {
+        continue;
+      }
+
+      const inWindow = await validateDateInWindow(userId, date);
+      if (!inWindow.ok) {
         continue;
       }
 
@@ -112,28 +103,48 @@ async function importSessionsFromCsv(filePath, userId) {
           ? Number(values[col.handsPlayed])
           : null;
 
-      upsert.run(
-        userId,
-        date,
-        startBalance,
-        profitLoss,
-        withdrawal,
-        endBalance,
-        notes,
-        Number.isFinite(hoursPlayed) ? hoursPlayed : 0,
-        Number.isFinite(handsPlayed) ? Math.trunc(handsPlayed) : null
+      await tx.run(
+        `INSERT INTO sessions
+         (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, date)
+         DO UPDATE SET
+           start_balance = EXCLUDED.start_balance,
+           profit_loss = EXCLUDED.profit_loss,
+           withdrawal = EXCLUDED.withdrawal,
+           end_balance = EXCLUDED.end_balance,
+           notes = EXCLUDED.notes,
+           hours_played = EXCLUDED.hours_played,
+           hands_played = EXCLUDED.hands_played`,
+        [
+          userId,
+          date,
+          startBalance,
+          profitLoss,
+          withdrawal,
+          endBalance,
+          notes,
+          Number.isFinite(hoursPlayed) ? hoursPlayed : 0,
+          Number.isFinite(handsPlayed) ? Math.trunc(handsPlayed) : null
+        ]
       );
 
-      imported += 1;
+      count += 1;
     }
 
-    return imported;
+    return count;
   });
 
-  return { imported: txn() };
+  return { imported };
 }
 
 router.get("/download", (req, res) => {
+  if (db.isPostgres()) {
+    return res
+      .status(400)
+      .json({ message: "DB file backup is unavailable in Postgres mode. Use CSV export." });
+  }
+
   return res.download(config.dbPath, "blackjack_tracker_backup.db");
 });
 
@@ -155,6 +166,13 @@ router.post("/restore", upload.single("backup"), async (req, res) => {
       return res.json({
         message: `CSV import completed. ${result.imported} sessions imported or updated.`
       });
+    }
+
+    if (db.isPostgres()) {
+      fs.unlinkSync(req.file.path);
+      return res
+        .status(400)
+        .json({ message: "DB file restore is unavailable in Postgres mode. Upload CSV instead." });
     }
 
     fs.copyFileSync(req.file.path, config.dbPath);

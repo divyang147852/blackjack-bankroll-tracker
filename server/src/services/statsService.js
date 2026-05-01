@@ -2,48 +2,45 @@ const dayjs = require("dayjs");
 const db = require("../db");
 const { computeDailyPlan, computeGoalProgress, round2 } = require("../utils/calc");
 
-function getUserSettings(userId) {
-  return db
-    .prepare(
-      `SELECT stop_loss_percent, profit_target_percent, withdrawal_percent, yearly_target, currency, theme
-       FROM settings WHERE user_id = ?`
-    )
-    .get(userId);
+async function getUserSettings(userId) {
+  return db.get(
+    `SELECT stop_loss_percent, profit_target_percent, withdrawal_percent, yearly_target, currency, theme
+     FROM settings WHERE user_id = ?`,
+    [userId]
+  );
 }
 
-function getAggregate(userId) {
-  const row = db
-    .prepare(
-      `SELECT
-        COUNT(*) AS days_played,
-        SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) AS days_won,
-        SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) AS days_lost,
-        COALESCE(SUM(profit_loss), 0) AS total_pl,
-        COALESCE(SUM(withdrawal), 0) AS total_withdrawn,
-        COALESCE(MAX(end_balance), 0) AS current_balance
-       FROM sessions
-       WHERE user_id = ?`
-    )
-    .get(userId);
+async function getAggregate(userId) {
+  const row = await db.get(
+    `SELECT
+      COUNT(*) AS days_played,
+      SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) AS days_won,
+      SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) AS days_lost,
+      COALESCE(SUM(profit_loss), 0) AS total_pl,
+      COALESCE(SUM(withdrawal), 0) AS total_withdrawn,
+      COALESCE(MAX(end_balance), 0) AS current_balance
+     FROM sessions
+     WHERE user_id = ?`,
+    [userId]
+  );
 
   return {
-    daysPlayed: Number(row.days_played || 0),
-    daysWon: Number(row.days_won || 0),
-    daysLost: Number(row.days_lost || 0),
-    totalPL: round2(row.total_pl || 0),
-    totalWithdrawn: round2(row.total_withdrawn || 0),
-    currentBalance: round2(row.current_balance || 0)
+    daysPlayed: Number(row?.days_played || 0),
+    daysWon: Number(row?.days_won || 0),
+    daysLost: Number(row?.days_lost || 0),
+    totalPL: round2(row?.total_pl || 0),
+    totalWithdrawn: round2(row?.total_withdrawn || 0),
+    currentBalance: round2(row?.current_balance || 0)
   };
 }
 
-function getStreaks(userId) {
-  const rows = db
-    .prepare(
-      `SELECT date, profit_loss FROM sessions
-       WHERE user_id = ?
-       ORDER BY date ASC`
-    )
-    .all(userId);
+async function getStreaks(userId) {
+  const rows = await db.all(
+    `SELECT date, profit_loss FROM sessions
+     WHERE user_id = ?
+     ORDER BY date ASC`,
+    [userId]
+  );
 
   let currentWin = 0;
   let currentLoss = 0;
@@ -74,10 +71,10 @@ function getStreaks(userId) {
   };
 }
 
-function buildDashboard(userId) {
-  const settings = getUserSettings(userId);
-  const aggregate = getAggregate(userId);
-  const streaks = getStreaks(userId);
+async function buildDashboard(userId) {
+  const settings = await getUserSettings(userId);
+  const aggregate = await getAggregate(userId);
+  const streaks = await getStreaks(userId);
 
   const goal = computeGoalProgress({
     yearlyTarget: settings.yearly_target,
@@ -123,15 +120,14 @@ function buildDashboard(userId) {
   };
 }
 
-function buildAnalytics(userId) {
-  const rows = db
-    .prepare(
-      `SELECT date, start_balance, profit_loss, withdrawal, end_balance
-       FROM sessions
-       WHERE user_id = ?
-       ORDER BY date ASC`
-    )
-    .all(userId);
+async function buildAnalytics(userId) {
+  const rows = await db.all(
+    `SELECT date, start_balance, profit_loss, withdrawal, end_balance
+     FROM sessions
+     WHERE user_id = ?
+     ORDER BY date ASC`,
+    [userId]
+  );
 
   const monthlyMap = new Map();
   let wins = 0;

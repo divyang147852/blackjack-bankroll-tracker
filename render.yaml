@@ -12,5 +12,5 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
-      - key: DB_PATH
-        value: ../../database/blackjack_tracker.db
+      - key: DATABASE_URL
+        sync: false

@@ -5,8 +5,8 @@ const { buildAnalytics } = require("../services/statsService");
 const router = express.Router();
 router.use(authMiddleware);
 
-router.get("/", (req, res) => {
-  const analytics = buildAnalytics(req.user.id);
+router.get("/", async (req, res) => {
+  const analytics = await buildAnalytics(req.user.id);
   return res.json(analytics);
 });
 

@@ -4,6 +4,7 @@ const db = require("../db");
 const authMiddleware = require("../middleware/auth");
 const { computeSessionMetrics, round2 } = require("../utils/calc");
 const { getUserSettings } = require("../services/statsService");
+const { validateDateInWindow } = require("../utils/trackingWindow");
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ const createSessionSchema = z.object({
 
 router.use(authMiddleware);
 
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const { type, startDate, endDate } = req.query;
 
   const filters = ["user_id = ?"];
@@ -53,18 +54,26 @@ router.get("/", (req, res) => {
     ORDER BY date DESC
   `;
 
-  const rows = db.prepare(query).all(...params);
+  const rows = await db.all(query, params);
   return res.json(rows);
 });
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const parsed = createSessionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid session payload" });
   }
 
-  const settings = getUserSettings(req.user.id);
+  const settings = await getUserSettings(req.user.id);
+  if (!settings) {
+    return res.status(404).json({ message: "Settings not found" });
+  }
+
   const payload = parsed.data;
+  const allowedDate = await validateDateInWindow(req.user.id, payload.date);
+  if (!allowedDate.ok) {
+    return res.status(400).json({ message: allowedDate.message });
+  }
 
   const metrics = computeSessionMetrics({
     startBalance: payload.startBalance,
@@ -79,13 +88,11 @@ router.post("/", (req, res) => {
   }
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO sessions
-         (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
+    const result = await db.run(
+      `INSERT INTO sessions
+       (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         req.user.id,
         payload.date,
         round2(payload.startBalance),
@@ -95,7 +102,8 @@ router.post("/", (req, res) => {
         payload.notes || "",
         payload.hoursPlayed || 0,
         payload.handsPlayed ?? null
-      );
+      ]
+    );
 
     return res.status(201).json({
       id: result.lastInsertRowid,
@@ -107,7 +115,7 @@ router.post("/", (req, res) => {
       nextDayProfitTarget: metrics.nextDayProfitTarget
     });
   } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed: sessions.user_id, sessions.date")) {
+    if (String(error.message).toLowerCase().includes("unique")) {
       return res.status(409).json({ message: "A session entry for this date already exists" });
     }
 
@@ -115,23 +123,27 @@ router.post("/", (req, res) => {
   }
 });
 
-router.post("/auto", (req, res) => {
+router.post("/auto", async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
-  const settings = getUserSettings(req.user.id);
+  const settings = await getUserSettings(req.user.id);
 
   if (!settings) {
     return res.status(404).json({ message: "Settings not found" });
   }
 
-  const latest = db
-    .prepare(
-      `SELECT end_balance
-       FROM sessions
-       WHERE user_id = ?
-       ORDER BY date DESC, id DESC
-       LIMIT 1`
-    )
-    .get(req.user.id);
+  const allowedDate = await validateDateInWindow(req.user.id, today);
+  if (!allowedDate.ok) {
+    return res.status(400).json({ message: allowedDate.message });
+  }
+
+  const latest = await db.get(
+    `SELECT end_balance
+     FROM sessions
+     WHERE user_id = ?
+     ORDER BY date DESC, id DESC
+     LIMIT 1`,
+    [req.user.id]
+  );
 
   const startBalance = round2(latest ? Number(latest.end_balance || 0) : 0);
   const profitLoss = round2(startBalance * (Number(settings.profit_target_percent || 0) / 100));
@@ -144,13 +156,11 @@ router.post("/auto", (req, res) => {
   });
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO sessions
-         (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)`
-      )
-      .run(
+    const result = await db.run(
+      `INSERT INTO sessions
+       (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)`,
+      [
         req.user.id,
         today,
         startBalance,
@@ -158,7 +168,8 @@ router.post("/auto", (req, res) => {
         metrics.suggestedWithdrawal,
         metrics.endBalance,
         "Auto entry (target hit)"
-      );
+      ]
+    );
 
     return res.status(201).json({
       id: result.lastInsertRowid,
@@ -175,7 +186,7 @@ router.post("/auto", (req, res) => {
       nextDayProfitTarget: metrics.nextDayProfitTarget
     });
   } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed: sessions.user_id, sessions.date")) {
+    if (String(error.message).toLowerCase().includes("unique")) {
       return res.status(409).json({ message: "Today's session already exists" });
     }
 
@@ -183,8 +194,11 @@ router.post("/auto", (req, res) => {
   }
 });
 
-router.delete("/:id", (req, res) => {
-  const result = db.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
+router.delete("/:id", async (req, res) => {
+  const result = await db.run("DELETE FROM sessions WHERE id = ? AND user_id = ?", [
+    req.params.id,
+    req.user.id
+  ]);
 
   if (result.changes === 0) {
     return res.status(404).json({ message: "Session not found" });

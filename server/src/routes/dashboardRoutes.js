@@ -5,8 +5,8 @@ const { buildDashboard } = require("../services/statsService");
 const router = express.Router();
 router.use(authMiddleware);
 
-router.get("/", (req, res) => {
-  const dashboard = buildDashboard(req.user.id);
+router.get("/", async (req, res) => {
+  const dashboard = await buildDashboard(req.user.id);
   return res.json(dashboard);
 });
 

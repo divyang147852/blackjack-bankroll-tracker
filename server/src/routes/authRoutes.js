@@ -36,8 +36,8 @@ function hashDeleteOtp(userId, otp) {
   return crypto.createHash("sha256").update(`${userId}:${otp}:${config.jwtSecret}`).digest("hex");
 }
 
-function verifyPasswordForUser(userId, password) {
-  const user = db.prepare("SELECT id, password_hash FROM users WHERE id = ?").get(userId);
+async function verifyPasswordForUser(userId, password) {
+  const user = await db.get("SELECT id, password_hash FROM users WHERE id = ?", [userId]);
   if (!user) {
     return { ok: false, status: 404, message: "User not found" };
   }
@@ -53,48 +53,53 @@ function signToken(user) {
   return jwt.sign({ id: user.id, username: user.username }, config.jwtSecret, { expiresIn: "7d" });
 }
 
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid registration payload" });
   }
 
   const { username, password, initialBalance } = parsed.data;
-  const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
+  const exists = await db.get("SELECT id FROM users WHERE username = ?", [username]);
   if (exists) {
     return res.status(409).json({ message: "Username already exists" });
   }
 
   const passwordHash = bcrypt.hashSync(password, 10);
-  const insertUser = db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)");
-  const result = insertUser.run(username, passwordHash);
+  const result = await db.run("INSERT INTO users (username, password_hash) VALUES (?, ?)", [
+    username,
+    passwordHash
+  ]);
+  const userId = Number(result.lastInsertRowid);
 
-  db.prepare(
+  await db.run(
     `INSERT INTO settings (user_id, stop_loss_percent, profit_target_percent, withdrawal_percent, yearly_target, currency, theme)
-     VALUES (?, 5, 3, 1, 80000, 'USD', 'dark')`
-  ).run(result.lastInsertRowid);
+     VALUES (?, 5, 3, 1, 80000, 'USD', 'dark')`,
+    [userId]
+  );
 
   // Seed the user's bankroll baseline so dashboard calculations are available immediately.
   const start = Math.max(0, Number(initialBalance || 0));
-  db.prepare(
+  await db.run(
     `INSERT INTO sessions (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
-     VALUES (?, date('now'), ?, 0, 0, ?, 'Initial bankroll', 0, NULL)`
-  ).run(result.lastInsertRowid, start, start);
+     VALUES (?, CURRENT_DATE, ?, 0, 0, ?, 'Initial bankroll', 0, NULL)`,
+    [userId, start, start]
+  );
 
-  const user = { id: result.lastInsertRowid, username };
+  const user = { id: userId, username };
   const token = signToken(user);
 
   return res.status(201).json({ token, user });
 });
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const parsed = authSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid username or password" });
   }
 
   const { username, password } = parsed.data;
-  const user = db.prepare("SELECT id, username, password_hash FROM users WHERE username = ?").get(username);
+  const user = await db.get("SELECT id, username, password_hash FROM users WHERE username = ?", [username]);
 
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ message: "Invalid credentials" });
@@ -104,18 +109,18 @@ router.post("/login", (req, res) => {
   return res.json({ token, user: { id: user.id, username: user.username } });
 });
 
-router.get("/me", authMiddleware, (req, res) => {
-  const user = db.prepare("SELECT id, username, created_at FROM users WHERE id = ?").get(req.user.id);
+router.get("/me", authMiddleware, async (req, res) => {
+  const user = await db.get("SELECT id, username, created_at FROM users WHERE id = ?", [req.user.id]);
   return res.json(user);
 });
 
-router.post("/delete/request-otp", authMiddleware, (req, res) => {
+router.post("/delete/request-otp", authMiddleware, async (req, res) => {
   const parsed = requestDeleteOtpSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({ message: "Password is required" });
   }
 
-  const verified = verifyPasswordForUser(req.user.id, parsed.data.password);
+  const verified = await verifyPasswordForUser(req.user.id, parsed.data.password);
   if (!verified.ok) {
     return res.status(verified.status).json({ message: verified.message });
   }
@@ -140,13 +145,13 @@ router.post("/delete/request-otp", authMiddleware, (req, res) => {
   });
 });
 
-router.delete("/me", authMiddleware, (req, res) => {
+router.delete("/me", authMiddleware, async (req, res) => {
   const parsed = deleteAccountSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({ message: "Password and 6-digit OTP are required" });
   }
 
-  const verified = verifyPasswordForUser(req.user.id, parsed.data.password);
+  const verified = await verifyPasswordForUser(req.user.id, parsed.data.password);
   if (!verified.ok) {
     return res.status(verified.status).json({ message: verified.message });
   }
@@ -173,7 +178,7 @@ router.delete("/me", authMiddleware, (req, res) => {
     return res.status(401).json({ message: "Invalid OTP" });
   }
 
-  const result = db.prepare("DELETE FROM users WHERE id = ?").run(req.user.id);
+  const result = await db.run("DELETE FROM users WHERE id = ?", [req.user.id]);
   if (result.changes === 0) {
     return res.status(500).json({ message: "Unable to delete account" });
   }

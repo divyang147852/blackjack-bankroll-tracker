@@ -8,18 +8,17 @@ const router = express.Router();
 router.use(authMiddleware);
 
 function getSessionRows(userId) {
-  return db
-    .prepare(
-      `SELECT date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played, created_at
-       FROM sessions
-       WHERE user_id = ?
-       ORDER BY date ASC`
-    )
-    .all(userId);
+  return db.all(
+    `SELECT date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played, created_at
+     FROM sessions
+     WHERE user_id = ?
+     ORDER BY date ASC`,
+    [userId]
+  );
 }
 
-router.get("/csv", (req, res) => {
-  const rows = getSessionRows(req.user.id);
+router.get("/csv", async (req, res) => {
+  const rows = await getSessionRows(req.user.id);
   const csv = stringify(rows, { header: true });
 
   res.setHeader("Content-Type", "text/csv");
@@ -28,7 +27,7 @@ router.get("/csv", (req, res) => {
 });
 
 router.get("/excel", async (req, res) => {
-  const rows = getSessionRows(req.user.id);
+  const rows = await getSessionRows(req.user.id);
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Sessions");
 

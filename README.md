@@ -54,6 +54,7 @@ Professional full-stack bankroll tracker for daily blackjack session management.
 Safety checks:
 - Duplicate date per user blocked
 - Negative end balance blocked
+- Session dates are restricted to a fixed 365-day window per user
 - API payload validation with zod
 
 ## Project Structure
@@ -156,13 +157,23 @@ This repository includes a Render blueprint file at [render.yaml](render.yaml) f
 
 - NODE_ENV=production
 - JWT_SECRET generated automatically
-- DB_PATH=../../database/blackjack_tracker.db
+- DATABASE_URL (set this in Render dashboard using free Neon/Supabase Postgres URL)
+
+### Free Persistent Storage (No Payment)
+
+1. Create a free Postgres database on Neon or Supabase.
+2. Copy connection string.
+3. In Render service env vars, set DATABASE_URL to that connection string.
+4. Redeploy.
+
+The backend auto-creates tables on startup for Postgres.
 
 ### Free Tier Reality Check
 
 - Render free web services can sleep after inactivity.
 - This means it is not true guaranteed 24/7 always-on uptime on the free tier.
 - SQLite data on free instances is not durable across all restarts/redeploys.
+- Use external Postgres (DATABASE_URL) to keep data durable on free Render.
 
 For reliable always-on behavior and durable storage, move to a paid Render plan and use a persistent disk or managed database.
 

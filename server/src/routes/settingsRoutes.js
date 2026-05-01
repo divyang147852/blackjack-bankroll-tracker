@@ -16,13 +16,12 @@ const settingsSchema = z.object({
 
 router.use(authMiddleware);
 
-router.get("/", (req, res) => {
-  const settings = db
-    .prepare(
-      `SELECT stop_loss_percent, profit_target_percent, withdrawal_percent, yearly_target, currency, theme
-       FROM settings WHERE user_id = ?`
-    )
-    .get(req.user.id);
+router.get("/", async (req, res) => {
+  const settings = await db.get(
+    `SELECT stop_loss_percent, profit_target_percent, withdrawal_percent, yearly_target, currency, theme
+     FROM settings WHERE user_id = ?`,
+    [req.user.id]
+  );
 
   if (!settings) {
     return res.status(404).json({ message: "Settings not found" });
@@ -38,25 +37,26 @@ router.get("/", (req, res) => {
   });
 });
 
-router.put("/", (req, res) => {
+router.put("/", async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid settings payload" });
   }
 
   const p = parsed.data;
-  db.prepare(
+  await db.run(
     `UPDATE settings
      SET stop_loss_percent = ?, profit_target_percent = ?, withdrawal_percent = ?, yearly_target = ?, currency = ?, theme = ?
-     WHERE user_id = ?`
-  ).run(
-    p.stopLossPercent,
-    p.profitTargetPercent,
-    p.withdrawalPercent,
-    p.yearlyTarget,
-    p.currency,
-    p.theme,
-    req.user.id
+     WHERE user_id = ?`,
+    [
+      p.stopLossPercent,
+      p.profitTargetPercent,
+      p.withdrawalPercent,
+      p.yearlyTarget,
+      p.currency,
+      p.theme,
+      req.user.id
+    ]
   );
 
   return res.json({ message: "Settings updated" });
