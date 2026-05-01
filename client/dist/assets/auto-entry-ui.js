@@ -37,6 +37,28 @@
     });
   }
 
+  function requestNextEntry() {
+    return fetch("/api/sessions/next", {
+      method: "POST",
+      headers: authHeaders()
+    }).then(function (res) {
+      return res
+        .json()
+        .catch(function () {
+          return {};
+        })
+        .then(function (body) {
+          if (!res.ok) {
+            var error = new Error(body.message || "Next session entry failed");
+            error.status = res.status;
+            throw error;
+          }
+
+          return body;
+        });
+    });
+  }
+
 
   function mountAutoEntryPanel(host) {
     if (!host || document.getElementById(PANEL_ID)) {
@@ -52,17 +74,22 @@
     panel.style.background = "rgba(16,185,129,.1)";
 
     var title = document.createElement("p");
-    title.textContent = "Quick Auto Entry";
+    title.textContent = "Quick Session Tools";
     title.style.margin = "0";
     title.style.fontWeight = "600";
     title.style.color = "#a7f3d0";
 
     var hint = document.createElement("p");
     hint.textContent =
-      "Auto Entry assumes target hit for today and calculates P/L, withdrawal, and end balance from your settings. Use manual entry for loss days.";
+      "Auto Entry creates today's calculated session. Next Session uses your latest saved entry and advances it by one day.";
     hint.style.margin = "0.4rem 0 0.6rem 0";
     hint.style.fontSize = "0.82rem";
     hint.style.color = "#d1fae5";
+
+    var actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.gap = "0.5rem";
+    actions.style.flexWrap = "wrap";
 
     var btn = document.createElement("button");
     btn.type = "button";
@@ -74,6 +101,17 @@
     btn.style.color = "#052e16";
     btn.style.fontWeight = "700";
     btn.style.cursor = "pointer";
+
+    var nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.textContent = "Create Next Session Entry";
+    nextBtn.style.padding = "0.55rem 0.9rem";
+    nextBtn.style.border = "none";
+    nextBtn.style.borderRadius = "0.65rem";
+    nextBtn.style.background = "#38bdf8";
+    nextBtn.style.color = "#082f49";
+    nextBtn.style.fontWeight = "700";
+    nextBtn.style.cursor = "pointer";
 
     var status = document.createElement("p");
     status.style.margin = "0.55rem 0 0 0";
@@ -95,9 +133,27 @@
         });
     });
 
+    nextBtn.addEventListener("click", function () {
+      nextBtn.disabled = true;
+      status.textContent = "Creating next session entry...";
+
+      requestNextEntry()
+        .then(function () {
+          status.textContent = "Next session entry created from the last session.";
+          window.location.reload();
+        })
+        .catch(function (err) {
+          status.textContent = err.message || "Failed to create next session entry.";
+          nextBtn.disabled = false;
+        });
+    });
+
+    actions.appendChild(btn);
+    actions.appendChild(nextBtn);
+
     panel.appendChild(title);
     panel.appendChild(hint);
-    panel.appendChild(btn);
+    panel.appendChild(actions);
     panel.appendChild(status);
 
     host.appendChild(panel);

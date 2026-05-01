@@ -123,6 +123,95 @@ router.post("/", async (req, res) => {
   }
 });
 
+function addDays(dateText, days) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText || ""));
+  if (!match) {
+    return null;
+  }
+
+  const base = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+router.post("/next", async (req, res) => {
+  const settings = await getUserSettings(req.user.id);
+  if (!settings) {
+    return res.status(404).json({ message: "Settings not found" });
+  }
+
+  const latest = await db.get(
+    `SELECT date, end_balance
+     FROM sessions
+     WHERE user_id = ?
+     ORDER BY date DESC, id DESC
+     LIMIT 1`,
+    [req.user.id]
+  );
+
+  if (!latest) {
+    return res.status(400).json({ message: "No previous session found" });
+  }
+
+  const nextDate = addDays(latest.date, 1);
+  if (!nextDate) {
+    return res.status(400).json({ message: "Unable to calculate next session date" });
+  }
+
+  const allowedDate = await validateDateInWindow(req.user.id, nextDate, { allowFuture: true });
+  if (!allowedDate.ok) {
+    return res.status(400).json({ message: allowedDate.message });
+  }
+
+  const startBalance = round2(Number(latest.end_balance || 0));
+  const profitLoss = round2(startBalance * (Number(settings.profit_target_percent || 0) / 100));
+  const metrics = computeSessionMetrics({
+    startBalance,
+    profitLoss,
+    withdrawalPercent: settings.withdrawal_percent,
+    stopLossPercent: settings.stop_loss_percent,
+    profitTargetPercent: settings.profit_target_percent
+  });
+
+  try {
+    const result = await db.run(
+      `INSERT INTO sessions
+       (user_id, date, start_balance, profit_loss, withdrawal, end_balance, notes, hours_played, hands_played)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)`,
+      [
+        req.user.id,
+        nextDate,
+        startBalance,
+        profitLoss,
+        metrics.suggestedWithdrawal,
+        metrics.endBalance,
+        "Next session entry (auto advanced)"
+      ]
+    );
+
+    return res.status(201).json({
+      id: result.lastInsertRowid,
+      date: nextDate,
+      startBalance,
+      profitLoss,
+      withdrawal: metrics.suggestedWithdrawal,
+      endBalance: metrics.endBalance,
+      notes: "Next session entry (auto advanced)",
+      hoursPlayed: 0,
+      handsPlayed: null,
+      unitSize: metrics.unitSize,
+      nextDayStopLoss: metrics.nextDayStopLoss,
+      nextDayProfitTarget: metrics.nextDayProfitTarget
+    });
+  } catch (error) {
+    if (String(error.message).toLowerCase().includes("unique")) {
+      return res.status(409).json({ message: "The next session entry already exists" });
+    }
+
+    return res.status(500).json({ message: "Unable to create next session" });
+  }
+});
+
 router.post("/auto", async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const settings = await getUserSettings(req.user.id);

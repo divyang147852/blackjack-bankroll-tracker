@@ -59,7 +59,8 @@ async function getWindow(userId) {
   };
 }
 
-async function validateDateInWindow(userId, dateText) {
+async function validateDateInWindow(userId, dateText, options = {}) {
+  const allowFuture = Boolean(options.allowFuture);
   const day = parseDateOnly(dateText);
   if (!day) {
     return { ok: false, message: "Invalid date format (YYYY-MM-DD required)" };
@@ -75,7 +76,7 @@ async function validateDateInWindow(userId, dateText) {
   );
   const maxAllowedDate = addUtcDays(currentUtcDay, 1);
 
-  if (day.getTime() > maxAllowedDate.getTime()) {
+  if (!allowFuture && day.getTime() > maxAllowedDate.getTime()) {
     return { ok: false, message: "Date cannot be in the future" };
   }
 
