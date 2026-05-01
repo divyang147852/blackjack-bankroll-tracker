@@ -124,7 +124,13 @@ router.post("/", async (req, res) => {
 });
 
 function addDays(dateText, days) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText || ""));
+  // Handle Date objects from Postgres by converting to YYYY-MM-DD string
+  let dateStr = dateText;
+  if (dateText instanceof Date) {
+    dateStr = dateText.toISOString().slice(0, 10);
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
   if (!match) {
     return null;
   }
