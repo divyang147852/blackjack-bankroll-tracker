@@ -1,7 +1,36 @@
-const dayjs = require("dayjs");
 const db = require("../db");
 
 const WINDOW_DAYS = 365;
+
+function parseDateOnly(dateText) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText || ""));
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function formatUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date, days) {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
 
 async function getWindow(userId) {
   const first = await db.get(
@@ -17,22 +46,36 @@ async function getWindow(userId) {
     return null;
   }
 
-  const start = dayjs(first.date);
-  const end = start.add(WINDOW_DAYS - 1, "day");
+  const start = parseDateOnly(first.date);
+  if (!start) {
+    return null;
+  }
+
+  const end = addUtcDays(start, WINDOW_DAYS - 1);
 
   return {
-    start: start.format("YYYY-MM-DD"),
-    end: end.format("YYYY-MM-DD")
+    start: formatUtcDate(start),
+    end: formatUtcDate(end)
   };
 }
 
 async function validateDateInWindow(userId, dateText) {
-  const day = dayjs(dateText, "YYYY-MM-DD", true);
-  if (!day.isValid()) {
+  const day = parseDateOnly(dateText);
+  if (!day) {
     return { ok: false, message: "Invalid date format (YYYY-MM-DD required)" };
   }
 
-  if (day.isAfter(dayjs(), "day")) {
+  const todayUtc = new Date();
+  const currentUtcDay = new Date(
+    Date.UTC(
+      todayUtc.getUTCFullYear(),
+      todayUtc.getUTCMonth(),
+      todayUtc.getUTCDate()
+    )
+  );
+  const maxAllowedDate = addUtcDays(currentUtcDay, 1);
+
+  if (day.getTime() > maxAllowedDate.getTime()) {
     return { ok: false, message: "Date cannot be in the future" };
   }
 
@@ -41,7 +84,7 @@ async function validateDateInWindow(userId, dateText) {
     return { ok: true };
   }
 
-  if (day.isBefore(dayjs(window.start), "day") || day.isAfter(dayjs(window.end), "day")) {
+  if (dateText < window.start || dateText > window.end) {
     return {
       ok: false,
       message: `Only 365-day tracking is allowed (${window.start} to ${window.end})`
